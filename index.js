@@ -5,6 +5,21 @@ const axios = require('axios');
 const app = express()
 const db = require('./db');
 const httpServer = http.createServer(app)
+const Redis = require('redis')
+// const { promisifyAll } = require('bluebird');
+require('dotenv').config();
+
+// promisifyAll(Redis);
+
+const { PG_HOST, PG_PORT } = process.env;
+
+const redisClient = Redis.createClient();
+
+redisClient.connect().then(() => console.log("Connected to redis"));
+redisClient.on('error', (error) => console.error(error));
+
+const DEFAULT_EXPIRATION = 3600;
+
 
 app.use(cors());
 app.use(express.json());
@@ -12,9 +27,17 @@ app.use(express.json());
 
 
 app.get('/todos', async (req, res) => {
+  
   try {
-    const response = await db.query("SELECT * FROM todos");
-    res.json(response.rows); 
+    const cachedResults = await redisClient.get('todos');
+
+    if (cachedResults) {
+        res.json(JSON.parse(cachedResults));
+    } else {
+        const response = await db.query("SELECT * FROM todos");
+        await redisClient.set('todos', JSON.stringify(response.rows)); // redis stores the data as strings
+        res.json(response.rows); 
+    }
   } catch (error) {
     res.status(500).json("Failed to get data from db");
     console.error(error.message);
